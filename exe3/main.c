@@ -26,26 +26,22 @@ void data_task(void *p) {
 void process_task(void *p) {
     int data = 0;
 
-    /* estado do filtro (janela 5) */
-    static int buf[5] = {0,0,0,0,0};
-    static int i = 0;
+    /* --- filtro média móvel janela 5 (simples e determinístico) --- */
+    static int buf[5] = {0};
+    static int idx = 0;
     static int count = 0;
     static int sum = 0;
 
     while (true) {
         if (xQueueReceive(xQueueData, &data, 100)) {
-            /* média móvel simples (janela 5) */
-            if (count == 5) {
-                sum -= buf[i];
-            } else {
-                count++;
-            }
-            buf[i] = data;
-            sum += data;
-            i++;
-            if (i == 5) i = 0;
+            sum -= buf[idx];
+            buf[idx] = data;
+            sum += buf[idx];
 
-            int y = sum / count;
+            if (count < 5) count++;
+            idx = (idx + 1) % 5;
+
+            int y = sum / count;   // média inteira
             printf("%d\n", y);
 
             // deixar esse delay!
