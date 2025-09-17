@@ -26,23 +26,24 @@ void data_task(void *p) {
 void process_task(void *p) {
     int data = 0;
 
-    /* --- filtro média móvel janela 5 (simples e determinístico) --- */
-    static int buf[5] = {0};
-    static int idx = 0;
-    static int count = 0;
-    static int sum = 0;
+    // média móvel (janela 5)
+    int win[5] = {0, 0, 0, 0, 0};
+    int sum = 0;
+    int idx = 0;
 
     while (true) {
         if (xQueueReceive(xQueueData, &data, 100)) {
-            sum -= buf[idx];
-            buf[idx] = data;
-            sum += buf[idx];
-
-            if (count < 5) count++;
+            // remove a amostra velha da soma
+            sum -= win[idx];
+            // insere a nova amostra
+            win[idx] = data;
+            sum += data;
+            // avança índice circular
             idx = (idx + 1) % 5;
 
-            int y = sum / count;   // média inteira
-            printf("%d\n", y);
+            // média da janela
+            int avg = sum / 5;
+            printf("%d\n", avg);
 
             // deixar esse delay!
             vTaskDelay(pdMS_TO_TICKS(50));
