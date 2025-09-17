@@ -4,6 +4,6 @@ add_executable(exe4
 
 target_link_libraries(exe4
                      hardware_adc
-                     hardware_timer
+                     pico_time
                      pico_stdlib )
 pico_add_extra_outputs(exe4)

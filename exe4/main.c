@@ -4,6 +4,7 @@
 #include "hardware/gpio.h"
 #include "hardware/timer.h"
 #include "hardware/adc.h"
+#include "pico/time.h"
 
 const int PIN_LED_B = 4;
 const float conversion_factor = 3.3f / (1 << 12);
