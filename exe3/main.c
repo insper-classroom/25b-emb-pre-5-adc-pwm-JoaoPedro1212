@@ -26,12 +26,27 @@ void data_task(void *p) {
 void process_task(void *p) {
     int data = 0;
 
+    /* estado do filtro (janela 5) */
+    static int buf[5] = {0,0,0,0,0};
+    static int i = 0;
+    static int count = 0;
+    static int sum = 0;
+
     while (true) {
         if (xQueueReceive(xQueueData, &data, 100)) {
-            // implementar filtro aqui!
+            /* média móvel simples (janela 5) */
+            if (count == 5) {
+                sum -= buf[i];
+            } else {
+                count++;
+            }
+            buf[i] = data;
+            sum += data;
+            i++;
+            if (i == 5) i = 0;
 
-
-
+            int y = sum / count;
+            printf("%d\n", y);
 
             // deixar esse delay!
             vTaskDelay(pdMS_TO_TICKS(50));
