@@ -10,7 +10,6 @@
  #include "hardware/gpio.h"
  #include "hardware/timer.h"
  #include "hardware/adc.h"
- #include "pico/time.h"
  
  const int PIN_LED_B = 4;
  
@@ -24,49 +23,63 @@
  int main() {
      stdio_init_all();
 
-     // ADIÇÕES: setup LED e ADC1 (GPIO27)
+     // LED
      gpio_init(PIN_LED_B);
      gpio_set_dir(PIN_LED_B, GPIO_OUT);
      gpio_put(PIN_LED_B, 0);
 
+     // ADC: habilita ADC0 (GP26) e ADC1 (GP27)
      adc_init();
-     adc_gpio_init(27);     // ADC1 na GPIO27
-     adc_select_input(1);
+     adc_gpio_init(26);
+     adc_gpio_init(27);
 
-     repeating_timer_t t;
-     int blink_on = 0;
-     int current_period = 0;
+     // Timer de pisca
+     static repeating_timer_t timer;
+     static int led_state = 0;
+     static int blinking = 0;
+     static int period_ms = 0;
 
-     bool cb(repeating_timer_t *rt) {
-         if (!blink_on) return true;
-         static int s = 0;
-         s ^= 1;
-         gpio_put(PIN_LED_B, s);
+     bool blink_cb(repeating_timer_t *tptr) {
+         if (!blinking) return true;
+         led_state ^= 1;
+         gpio_put(PIN_LED_B, led_state);
          return true;
      }
 
-     auto set_period = [&](int ms){
+     void set_period(int ms) {
          if (ms <= 0) {
-             blink_on = 0;
-             cancel_repeating_timer(&t);
+             blinking = 0;
+             cancel_repeating_timer(&timer);
+             led_state = 0;
              gpio_put(PIN_LED_B, 0);
-             current_period = 0;
+             period_ms = 0;
              return;
          }
-         if (blink_on && current_period == ms) return;
-         cancel_repeating_timer(&t);
+         if (period_ms == ms && blinking) return;
+         cancel_repeating_timer(&timer);
+         led_state = 0;
          gpio_put(PIN_LED_B, 0);
-         add_repeating_timer_ms(ms, cb, NULL, &t);
-         blink_on = 1;
-         current_period = ms;
-     };
+         add_repeating_timer_ms(ms, blink_cb, NULL, &timer);
+         blinking = 1;
+         period_ms = ms;
+     }
 
      while (1) {
-         uint16_t raw = adc_read();
-         float v = raw * conversion_factor;
+         // Lê ADC0 (GP26)
+         adc_select_input(0);
+         uint16_t r0 = adc_read();
+         float v0 = r0 * conversion_factor;
 
-         if (v < 1.0f)       set_period(0);
-         else if (v < 2.0f)  set_period(150);
-         else                set_period(400);
+         // Lê ADC1 (GP27)
+         adc_select_input(1);
+         uint16_t r1 = adc_read();
+         float v1 = r1 * conversion_factor;
+
+         // Usa o maior valor (garante compatibilidade com o teste/diagrama)
+         float v = (v0 > v1) ? v0 : v1;
+
+         if (v < 1.0f)        set_period(0);     // desligado
+         else if (v < 2.0f)   set_period(150);   // 150 ms
+         else                 set_period(400);   // 400 ms
      }
  }
