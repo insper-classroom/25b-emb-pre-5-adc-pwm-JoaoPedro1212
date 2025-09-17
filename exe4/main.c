@@ -4,82 +4,85 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include <stdio.h>
+#include "pico/stdlib.h"
+#include "hardware/gpio.h"
+#include "hardware/timer.h"
+#include "hardware/adc.h"
 
- #include <stdio.h>
- #include "pico/stdlib.h"
- #include "hardware/gpio.h"
- #include "hardware/timer.h"
- #include "hardware/adc.h"
- 
- const int PIN_LED_B = 4;
- 
- const float conversion_factor = 3.3f / (1 << 12);
- 
- /**
-  * 0..1.0V: Desligado
-  * 1..2.0V: 150 ms
-  * 2..3.3V: 400 ms
-  */
- int main() {
-     stdio_init_all();
+const int PIN_LED_B = 4;
 
-     // LED
-     gpio_init(PIN_LED_B);
-     gpio_set_dir(PIN_LED_B, GPIO_OUT);
-     gpio_put(PIN_LED_B, 0);
+const float conversion_factor = 3.3f / (1 << 12);
 
-     // ADC: habilita ADC0 (GP26) e ADC1 (GP27)
-     adc_init();
-     adc_gpio_init(26);
-     adc_gpio_init(27);
+/**
+ * 0..1.0V: Desligado
+ * 1..2.0V: 300 ms
+ * 2..3.3V: 500 ms
+ */
 
-     // Timer de pisca
-     static repeating_timer_t timer;
-     static int led_state = 0;
-     static int blinking = 0;
-     static int period_ms = 0;
+static struct repeating_timer timer;   // permitido: usado por IRQ
+static volatile bool led_on = false;   // estado do LED usado pela ISR
 
-     bool blink_cb(repeating_timer_t *tptr) {
-         if (!blinking) return true;
-         led_state ^= 1;
-         gpio_put(PIN_LED_B, led_state);
-         return true;
-     }
+static bool blink_cb(struct repeating_timer *t) {
+    (void)t;
+    led_on = !led_on;
+    gpio_put(PIN_LED_B, led_on);
+    return true; // continua repetindo
+}
 
-     void set_period(int ms) {
-         if (ms <= 0) {
-             blinking = 0;
-             cancel_repeating_timer(&timer);
-             led_state = 0;
-             gpio_put(PIN_LED_B, 0);
-             period_ms = 0;
-             return;
-         }
-         if (period_ms == ms && blinking) return;
-         cancel_repeating_timer(&timer);
-         led_state = 0;
-         gpio_put(PIN_LED_B, 0);
-         add_repeating_timer_ms(ms, blink_cb, NULL, &timer);
-         blinking = 1;
-         period_ms = ms;
-     }
+int main() {
+    stdio_init_all();
 
-     while (1) {
-         // Lê ADC0 (GP26)
-         adc_select_input(0);
-         uint16_t r0 = adc_read();
-         float v0 = r0 * conversion_factor;
+    // LED
+    gpio_init(PIN_LED_B);
+    gpio_set_dir(PIN_LED_B, GPIO_OUT);
+    gpio_put(PIN_LED_B, 0);
+    led_on = false;
 
-         // Lê ADC1 (GP27)
-         adc_select_input(1);
-         uint16_t r1 = adc_read();
-         float v1 = r1 * conversion_factor;
+    // ADC no GP28 -> ADC2
+    adc_init();
+    adc_gpio_init(28);
+    adc_select_input(2);
 
-         // Usa o maior valor (garante compatibilidade com o teste/diagrama)
-         float v = (v0 > v1) ? v0 : v1;
+    // Limiares em contagem ADC (3.3V -> 4095)
+    const int th1 = (int)(4095 * 1.0f / 3.3f + 0.5f); // ~1241
+    const int th2 = (int)(4095 * 2.0f / 3.3f + 0.5f); // ~2482
 
-         if (v < 1.0f)        set_period(0);     // desligado
-         else if (v < 2.0f)   set_period(150);   // 150 ms
-         else                 set_period(400);   // 400 ms
-     }
- }
+    int zona = -1; // força configuração no primeiro laço
+    bool timer_on = false;
+
+    while (1) {
+        int raw = adc_read();
+
+        int nova_zona;
+        if (raw < th1) {
+            nova_zona = 0;
+        } else if (raw < th2) {
+            nova_zona = 1;
+        } else {
+            nova_zona = 2;
+        }
+
+        if (nova_zona != zona) {
+            zona = nova_zona;
+
+            // sempre apagar LED ao trocar (evita ficar aceso na zona 0)
+            if (timer_on) {
+                cancel_repeating_timer(&timer);
+                timer_on = false;
+            }
+            led_on = false;
+            gpio_put(PIN_LED_B, 0);
+
+            if (zona == 1) {
+                add_repeating_timer_ms(300, blink_cb, NULL, &timer);
+                timer_on = true;
+            } else if (zona == 2) {
+                add_repeating_timer_ms(500, blink_cb, NULL, &timer);
+                timer_on = true;
+            }
+        }
+
+        tight_loop_contents();
+    }
+}
