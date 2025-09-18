@@ -1,5 +1,6 @@
 /**
  * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+ *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
@@ -9,54 +10,67 @@
 #include "hardware/timer.h"
 #include "hardware/adc.h"
 
-const int PIN_LED_B = 4;              
+const int PIN_LED_B = 4;
+
 const float conversion_factor = 3.3f / (1 << 12);
 
-static struct repeating_timer timer;
-static volatile bool led_state = false;
-
-static bool blink_cb(struct repeating_timer *t) {
-    (void)t;
-    led_state = !led_state;
-    gpio_put(PIN_LED_B, led_state);
-    return true;
-}
-
+/**
+ * 0..1.0V: Desligado
+ * 1..2.0V: 300 ms
+ * 2..3.3V: 500 ms
+ */
 int main() {
     stdio_init_all();
 
     gpio_init(PIN_LED_B);
     gpio_set_dir(PIN_LED_B, GPIO_OUT);
     gpio_put(PIN_LED_B, 0);
-    led_state = false;
 
     adc_init();
-    adc_gpio_init(28);    
+    adc_gpio_init(28);
     adc_select_input(2);
 
-    const int th1 = (int)(4095.0f * 1.0f / 3.3f + 0.5f); 
-    const int th2 = (int)(4095.0f * 2.0f / 3.3f + 0.5f); 
+    struct LedCtx {
+        int period_ms;
+        int tick_ms;
+        int level;
+    } ctx;
+    ctx.period_ms = 0;
+    ctx.tick_ms = 0;
+    ctx.level = 0;
 
-    int zona = -1;
-    bool timer_on = false;
+    bool timer_cb(struct repeating_timer *t) {
+        struct LedCtx *s = (struct LedCtx *)t->user_data;
+        if (s->period_ms <= 0) {
+            s->level = 0;
+            gpio_put(PIN_LED_B, 0);
+            return true;
+        }
+        s->tick_ms++;
+        if (s->tick_ms >= s->period_ms) {
+            s->tick_ms = 0;
+            s->level = !s->level;
+            gpio_put(PIN_LED_B, s->level);
+        }
+        return true;
+    }
+
+    struct repeating_timer timer;
+    add_repeating_timer_ms(1, timer_cb, &ctx, &timer);
 
     while (1) {
-        int raw = adc_read();
+        uint16_t raw = adc_read();
+        float v = raw * conversion_factor;
 
-        int nova_zona;
-        if (raw < th1)      nova_zona = 0;  
-        else if (raw < th2) nova_zona = 1;   
-        else                nova_zona = 2;  
+        int p = 0;
+        if (v >= 1.0f && v < 2.0f) p = 300;
+        else if (v >= 2.0f)       p = 500;
 
-        if (nova_zona != zona) {
-            zona = nova_zona;
-
-            if (timer_on) { cancel_repeating_timer(&timer); timer_on = false; }
-            led_state = false;
+        ctx.period_ms = p;
+        if (p == 0) {
+            ctx.level = 0;
+            ctx.tick_ms = 0;
             gpio_put(PIN_LED_B, 0);
-
-            if (zona == 1) { add_repeating_timer_ms(300, blink_cb, NULL, &timer); timer_on = true; }
-            else if (zona == 2) { add_repeating_timer_ms(500, blink_cb, NULL, &timer); timer_on = true; }
         }
     }
 }
