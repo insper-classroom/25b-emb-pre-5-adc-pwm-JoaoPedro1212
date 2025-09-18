@@ -44,14 +44,14 @@ int main() {
     gpio_put(PIN_LED_B, 0);
 
     adc_init();
-    adc_gpio_init(28);  
+    adc_gpio_init(28);   // ADC2 -> GPIO28
     adc_select_input(2);
 
     const int th1 = (int)(4095.0f * 1.0f / 3.3f + 0.5f);
     const int th2 = (int)(4095.0f * 2.0f / 3.3f + 0.5f);
 
     struct led_ctx ctx;
-    ctx.period_ms = 300;  
+    ctx.period_ms = 500;  // <-- ajuste para respeitar o teste
     ctx.tick_ms   = 0;
     ctx.level     = 0;
 
@@ -64,9 +64,9 @@ int main() {
         int raw = adc_read();
 
         int nova_zona;
-        if (raw < th1)      nova_zona = 0;  
-        else if (raw < th2) nova_zona = 1;  
-        else                nova_zona = 2;   
+        if (raw < th1)      nova_zona = 0;   // desligado
+        else if (raw < th2) nova_zona = 1;   // 300 ms
+        else                nova_zona = 2;   // 500 ms
 
         if (nova_zona != zona) {
             zona = nova_zona;
