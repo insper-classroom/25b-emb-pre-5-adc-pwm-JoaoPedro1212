@@ -1,6 +1,5 @@
 /**
  * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
- *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
@@ -11,14 +10,32 @@
 #include "hardware/adc.h"
 
 const int PIN_LED_B = 4;
-
 const float conversion_factor = 3.3f / (1 << 12);
 
-/**
- * 0..1.0V: Desligado
- * 1..2.0V: 300 ms
- * 2..3.3V: 500 ms
- */
+struct led_ctx {
+    int period_ms;
+    int tick_ms;
+    int level;
+};
+
+static bool blink_cb(struct repeating_timer *t) {
+    struct led_ctx *s = (struct led_ctx *)t->user_data;
+
+    if (s->period_ms <= 0) {
+        s->level = 0;
+        gpio_put(PIN_LED_B, 0);
+        return true;
+    }
+
+    s->tick_ms++;
+    if (s->tick_ms >= s->period_ms) {
+        s->tick_ms = 0;
+        s->level = !s->level;
+        gpio_put(PIN_LED_B, s->level);
+    }
+    return true;
+}
+
 int main() {
     stdio_init_all();
 
@@ -27,50 +44,45 @@ int main() {
     gpio_put(PIN_LED_B, 0);
 
     adc_init();
-    adc_gpio_init(28);
+    adc_gpio_init(28);  
     adc_select_input(2);
 
-    struct LedCtx {
-        int period_ms;
-        int tick_ms;
-        int level;
-    } ctx;
-    ctx.period_ms = 0;
-    ctx.tick_ms = 0;
-    ctx.level = 0;
+    const int th1 = (int)(4095.0f * 1.0f / 3.3f + 0.5f);
+    const int th2 = (int)(4095.0f * 2.0f / 3.3f + 0.5f);
 
-    bool timer_cb(struct repeating_timer *t) {
-        struct LedCtx *s = (struct LedCtx *)t->user_data;
-        if (s->period_ms <= 0) {
-            s->level = 0;
-            gpio_put(PIN_LED_B, 0);
-            return true;
-        }
-        s->tick_ms++;
-        if (s->tick_ms >= s->period_ms) {
-            s->tick_ms = 0;
-            s->level = !s->level;
-            gpio_put(PIN_LED_B, s->level);
-        }
-        return true;
-    }
+    struct led_ctx ctx;
+    ctx.period_ms = 300;  
+    ctx.tick_ms   = 0;
+    ctx.level     = 0;
 
     struct repeating_timer timer;
-    add_repeating_timer_ms(1, timer_cb, &ctx, &timer);
+    add_repeating_timer_ms(1, blink_cb, &ctx, &timer);
+
+    int zona = -1;
 
     while (1) {
-        uint16_t raw = adc_read();
-        float v = raw * conversion_factor;
+        int raw = adc_read();
 
-        int p = 0;
-        if (v >= 1.0f && v < 2.0f) p = 300;
-        else if (v >= 2.0f)       p = 500;
+        int nova_zona;
+        if (raw < th1)      nova_zona = 0;  
+        else if (raw < th2) nova_zona = 1;  
+        else                nova_zona = 2;   
 
-        ctx.period_ms = p;
-        if (p == 0) {
-            ctx.level = 0;
-            ctx.tick_ms = 0;
-            gpio_put(PIN_LED_B, 0);
+        if (nova_zona != zona) {
+            zona = nova_zona;
+
+            if (zona == 0) {
+                ctx.period_ms = 0;
+                ctx.tick_ms   = 0;
+                ctx.level     = 0;
+                gpio_put(PIN_LED_B, 0);
+            } else if (zona == 1) {
+                ctx.period_ms = 300;
+                ctx.tick_ms   = 0;
+            } else {
+                ctx.period_ms = 500;
+                ctx.tick_ms   = 0;
+            }
         }
     }
 }
